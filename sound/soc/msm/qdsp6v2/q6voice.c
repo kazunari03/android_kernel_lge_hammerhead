@@ -1888,20 +1888,22 @@ static int voice_send_cvs_register_cal_cmd(struct voice_data *v)
 	if (!common.apr_q6_cvs) {
 		pr_err("%s: apr_cvs is NULL\n", __func__);
 
-		ret = -EPERM;
+		ret = -EINVAL;
 		goto done;
 	}
 
 	if (!common.cal_mem_handle) {
 		pr_err("%s: Cal mem handle is NULL\n", __func__);
-		ret = -EPERM;
+
+		ret = -EINVAL;
 		goto done;
 	}
 
 	get_vocstrm_cal(&cal_block);
 	if (cal_block.cal_size == 0) {
 		pr_err("%s: CVS cal size is 0\n", __func__);
-		ret = -EPERM;
+
+		ret = -EINVAL;
 		goto done;
 	}
 
@@ -2177,20 +2179,22 @@ static int voice_send_cvp_register_cal_cmd(struct voice_data *v)
 	if (!common.apr_q6_cvp) {
 		pr_err("%s: apr_cvp is NULL\n", __func__);
 
-		ret = -EPERM;
+		ret = -EINVAL;
 		goto done;
 	}
 
 	if (!common.cal_mem_handle) {
 		pr_err("%s: Cal mem handle is NULL\n", __func__);
-		ret = -EPERM;
+
+		ret = -EINVAL;
 		goto done;
 	}
 
 	get_vocproc_cal(&cal_block);
 	if (cal_block.cal_size == 0) {
 		pr_err("%s: CVP cal size is 0\n", __func__);
-		ret = -EPERM;
+
+		ret = -EINVAL;
 		goto done;
 	}
 
@@ -2327,20 +2331,22 @@ static int voice_send_cvp_register_vol_cal_cmd(struct voice_data *v)
 	if (!common.apr_q6_cvp) {
 		pr_err("%s: apr_cvp is NULL\n", __func__);
 
-		ret = -EPERM;
+		ret = -EINVAL;
 		goto done;
 	}
 
 	if (!common.cal_mem_handle) {
 		pr_err("%s: Cal mem handle is NULL\n", __func__);
-		ret = -EPERM;
+
+		ret = -EINVAL;
 		goto done;
 	}
 
 	get_vocvol_cal(&cal_block);
 	if (cal_block.cal_size == 0) {
 		pr_err("%s: CVP vol cal size is 0\n", __func__);
-		ret = -EPERM;
+
+		ret = -EINVAL;
 		goto done;
 	}
 
