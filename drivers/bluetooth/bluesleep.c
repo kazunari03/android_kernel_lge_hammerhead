@@ -276,9 +276,9 @@ static void bluesleep_sleep_work(struct work_struct *work)
 			(test_bit(BT_EXT_WAKE, &flags)),
 			bsi->uport != NULL, has_lpm_enabled);
 			/* UART clk is not turned off immediately. Release
-			 * wakelock after 500 ms.
+			 * wakelock after 125 ms.
 			 */
-			wake_lock_timeout(&bsi->wake_lock, HZ / 2);
+			wake_lock_timeout(&bsi->wake_lock, HZ / 8);
 		} else {
 
 		  mod_timer(&tx_timer, jiffies + (TX_TIMER_INTERVAL * HZ));
@@ -625,7 +625,7 @@ static void bluesleep_stop(void)
 		(gpio_get_value(bsi->host_wake) != bsi->irq_polarity),
 		(test_bit(BT_EXT_WAKE, &flags)),
 		bsi->uport != NULL, has_lpm_enabled);
-	wake_lock_timeout(&bsi->wake_lock, HZ / 2);
+	wake_lock_timeout(&bsi->wake_lock, HZ / 8);
 }
 /**
  * Read the <code>BT_WAKE</code> GPIO pin value via the proc interface.
