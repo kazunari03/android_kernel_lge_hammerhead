@@ -1021,6 +1021,7 @@ static void handle_fbd(enum command_response cmd, void *data)
 	struct msm_vidc_inst *inst;
 	struct vb2_buffer *vb;
 	struct vidc_hal_fbd *fill_buf_done;
+	int64_t time_usec = 0;
 
 	if (!response) {
 		dprintk(VIDC_ERR, "Invalid response from vidc_hal\n");
@@ -1052,12 +1053,20 @@ static void handle_fbd(enum command_response cmd, void *data)
 		if (!(fill_buf_done->flags1 &
 			HAL_BUFFERFLAG_TIMESTAMPINVALID) &&
 			fill_buf_done->filled_len1) {
-			int64_t time_usec = fill_buf_done->timestamp_hi;
+			time_usec = fill_buf_done->timestamp_hi;
 			time_usec = (time_usec << 32) |
 				fill_buf_done->timestamp_lo;
-			vb->v4l2_buf.timestamp =
-				ns_to_timeval(time_usec * NSEC_PER_USEC);
+		} else {
+			time_usec = 0;
+			dprintk(VIDC_DBG,
+					"Set zero timestamp for buffer 0x%pa, filled: %d, (hi:%u, lo:%u)\n",
+					&fill_buf_done->packet_buffer1,
+					fill_buf_done->filled_len1,
+					fill_buf_done->timestamp_hi,
+					fill_buf_done->timestamp_lo);
 		}
+		vb->v4l2_buf.timestamp =
+			ns_to_timeval(time_usec * NSEC_PER_USEC);
 		vb->v4l2_buf.flags = 0;
 
 		handle_dynamic_buffer(inst, (u32)fill_buf_done->packet_buffer1,
