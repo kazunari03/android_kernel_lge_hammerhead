@@ -1325,7 +1325,8 @@ int ip6_append_data(struct sock *sk, int getfrag(void *from, char *to,
 		}
 
 		if (proto == IPPROTO_UDP &&
-		    (rt->dst.dev->features & NETIF_F_UFO) && !dst_xfrm(&rt->dst)) {
+		    (rt->dst.dev->features & NETIF_F_UFO) && !dst_xfrm(&rt->dst) &&
+		    (sk->sk_type == SOCK_DGRAM)) {
 
 			err = ip6_ufo_append_data(sk, getfrag, from, length,
 						  hh_len, fragheaderlen,
