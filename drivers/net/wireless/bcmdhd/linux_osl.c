@@ -1037,6 +1037,20 @@ original:
 	return (addr);
 }
 
+void *
+osl_mallocz(osl_t *osh, uint size)
+{
+	void *ptr;
+    
+	ptr = osl_malloc(osh, size);
+
+	if (ptr != NULL) {
+		bzero(ptr, size);
+	}
+
+	return ptr;
+}
+
 void
 osl_mfree(osl_t *osh, void *addr, uint size)
 {

@@ -240,7 +240,6 @@ typedef union bcm_event_msg_u {
 #define WLC_E_CSA_FAILURE_IND		123
 #define WLC_E_CCA_CHAN_QUAL		124	/* CCA based channel quality report */
 #define WLC_E_PFN_GSCAN_FULL_RESULT   134 /* Full probe/beacon (IEs etc) results */
-#define WLC_E_PFN_SWC 135 /* Significant change in rssi of bssids being tracked */
 #define WLC_E_PFN_SCAN_COMPLETE	138	/* PFN completed scan of network list */
 #define WLC_E_PFN_SSID_EXT      142  /* SSID EXT event */
 #define WLC_E_ROAM_EXP_EVENT    143  /* Expanded roam event */
