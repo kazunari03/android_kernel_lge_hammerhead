@@ -290,7 +290,7 @@ static struct {
 	int	user_cal_read;
 	int	user_cal_available;
 	int	user_cal_rcvd;
-	int	user_cal_exp_size;
+	u32	user_cal_exp_size;
 	int	device_opened;
 	struct mutex dev_lock;
 	wait_queue_head_t read_wait;
