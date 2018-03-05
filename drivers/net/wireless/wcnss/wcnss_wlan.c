@@ -1798,6 +1798,10 @@ exit:
 	return rc;
 }
 
+static int wcnss_node_release(struct inode *inode, struct file *file)
+{
+	return 0;
+}
 
 static const struct file_operations wcnss_node_fops = {
 	.owner = THIS_MODULE,
