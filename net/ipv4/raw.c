@@ -486,18 +486,15 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	int err;
 	struct ip_options_data opt_copy;
 	int hdrincl;
-	struct raw_frag_vec rfv;
 
 	err = -EMSGSIZE;
 	if (len > 0xFFFF)
 		goto out;
 
 	/* hdrincl should be READ_ONCE(inet->hdrincl)
-	 * but READ_ONCE() doesn't work with bit fields.
-	 * Doing this indirectly yields the same result.
 	 */
+	 * but READ_ONCE() doesn't work with bit fields
 	hdrincl = inet->hdrincl;
-	hdrincl = ACCESS_ONCE(hdrincl);
 	/*
 	 *	Check the flags.
 	 */
@@ -595,10 +592,7 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 			   daddr, saddr, 0, 0);
 
 	if (!hdrincl) {
-		rfv.iov = msg->msg_iov;
-		rfv.hlen = 0;
-
-		err = raw_probe_proto_opt(&rfv, &fl4);
+		err = raw_probe_proto_opt(&fl4, msg);
 		if (err)
 			goto done;
 	}
