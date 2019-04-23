@@ -153,6 +153,7 @@ enum {
 	SWP_BLKDEV	= (1 << 6),	/* its a block device */
 					/* add others here before... */
 	SWP_SCANNING	= (1 << 8),	/* refcount in scan_swap_map */
+	SWP_FAST	= (1 << 10),	/* blkdev access is fast and cheap */
 };
 
 #define SWAP_CLUSTER_MAX 32
@@ -346,10 +347,18 @@ extern struct page *swapin_readahead(swp_entry_t, gfp_t,
 /* linux/mm/swapfile.c */
 extern atomic_long_t nr_swap_pages;
 extern long total_swap_pages;
+extern bool is_swap_fast(swp_entry_t entry);
 
 /* Swap 50% full? Release swapcache more aggressively.. */
-static inline bool vm_swap_full(void)
+static inline bool vm_swap_full(struct swap_info_struct *si)
 {
+	/*
+	 * If the swap device is fast, return true
+	 * not to delay swap free.
+	 */
+	if (si->flags & SWP_FAST)
+		return true;
+
 	return atomic_long_read(&nr_swap_pages) * 2 < total_swap_pages;
 }
 
@@ -373,6 +382,7 @@ extern unsigned int count_swap_pages(int, int);
 extern sector_t map_swap_page(struct page *, struct block_device **);
 extern sector_t swapdev_block(int, pgoff_t);
 extern int page_swapcount(struct page *);
+extern int swp_swapcount(swp_entry_t entry);
 extern struct swap_info_struct *page_swap_info(struct page *);
 extern int reuse_swap_page(struct page *);
 extern int try_to_free_swap(struct page *);
@@ -393,7 +403,7 @@ mem_cgroup_uncharge_swapcache(struct page *page, swp_entry_t ent, bool swapout)
 #define get_nr_swap_pages()			0L
 #define total_swap_pages			0L
 #define total_swapcache_pages			0UL
-#define vm_swap_full()				0
+#define vm_swap_full(si)			0
 
 #define si_swapinfo(val) \
 	do { (val)->freeswap = (val)->totalswap = 0; } while (0)
@@ -466,6 +476,16 @@ static inline void __delete_from_swap_cache(struct page *page)
 
 static inline void delete_from_swap_cache(struct page *page)
 {
+}
+
+static inline int page_swapcount(struct page *page)
+{
+	return 0;
+}
+
+static inline int swp_swapcount(swp_entry_t entry)
+{
+	return 0;
 }
 
 #define reuse_swap_page(page)	(page_mapcount(page) == 1)

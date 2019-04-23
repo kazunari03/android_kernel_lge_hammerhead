@@ -220,7 +220,7 @@ unsigned int oom_badness(struct task_struct *p, struct mem_cgroup *memcg,
 	 * implementation used by LSMs.
 	 */
 	if (has_capability_noaudit(p, CAP_SYS_ADMIN))
-		points -= 30;
+		points -= (points * 3) / 100;
 
 	/*
 	 * /proc/pid/oom_score_adj ranges from -1000 to +1000 such that it may
@@ -433,6 +433,23 @@ static void dump_header(struct task_struct *p, gfp_t gfp_mask, int order,
 	show_mem(SHOW_MEM_FILTER_NODES);
 	if (sysctl_oom_dump_tasks)
 		dump_tasks(memcg, nodemask);
+}
+
+/*
+ * Number of OOM killer invocations (including memcg OOM killer).
+ * Primarily used by PM freezer to check for potential races with
+ * OOM killed frozen task.
+ */
+static atomic_t oom_kills = ATOMIC_INIT(0);
+
+int oom_kills_count(void)
+{
+	return atomic_read(&oom_kills);
+}
+
+void note_oom_kill(void)
+{
+	atomic_inc(&oom_kills);
 }
 
 #define K(x) ((x) << (PAGE_SHIFT-10))

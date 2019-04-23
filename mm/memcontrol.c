@@ -4550,16 +4550,17 @@ static void mem_cgroup_usage_unregister_event(struct cgroup *cgrp,
 swap_buffers:
 	/* Swap primary and spare array */
 	thresholds->spare = thresholds->primary;
-	/* If all events are unregistered, free the spare array */
-	if (!new) {
-		kfree(thresholds->spare);
-		thresholds->spare = NULL;
-	}
 
 	rcu_assign_pointer(thresholds->primary, new);
 
 	/* To be sure that nobody uses thresholds */
 	synchronize_rcu();
+
+	/* If all events are unregistered, free the spare array */
+	if (!new) {
+		kfree(thresholds->spare);
+		thresholds->spare = NULL;
+	}
 unlock:
 	mutex_unlock(&memcg->thresholds_lock);
 }
@@ -5686,6 +5687,23 @@ static void mem_cgroup_move_task(struct cgroup *cont,
 }
 #endif
 
+static int mem_cgroup_allow_attach(struct cgroup *cgrp,
+				 struct cgroup_taskset *tset)
+{
+	const struct cred *cred = current_cred(), *tcred;
+	struct task_struct *task;
+
+	cgroup_taskset_for_each(task, cgrp, tset) {
+		tcred = __task_cred(task);
+
+		if ((current != task) && !capable(CAP_SYS_ADMIN) &&
+		    cred->euid != tcred->uid && cred->euid != tcred->suid)
+			return -EACCES;
+	}
+
+	return 0;
+}
+
 struct cgroup_subsys mem_cgroup_subsys = {
 	.name = "memory",
 	.subsys_id = mem_cgroup_subsys_id,
@@ -5696,6 +5714,7 @@ struct cgroup_subsys mem_cgroup_subsys = {
 	.can_attach = mem_cgroup_can_attach,
 	.cancel_attach = mem_cgroup_cancel_attach,
 	.attach = mem_cgroup_move_task,
+	.allow_attach = mem_cgroup_allow_attach,
 	.early_init = 0,
 	.use_id = 1,
 };
