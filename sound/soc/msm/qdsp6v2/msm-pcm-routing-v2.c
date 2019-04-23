@@ -30,6 +30,7 @@
 #include <sound/tlv.h>
 #include <sound/asound.h>
 #include <sound/pcm_params.h>
+#include <linux/slab.h>
 
 #include "msm-pcm-routing-v2.h"
 #include "msm-dolby-dap-config.h"
@@ -67,7 +68,8 @@ enum {
 	MADNONE,
 	MADAUDIO,
 	MADBEACON,
-	MADULTRASOUND
+	MADULTRASOUND,
+	MADSWAUDIO,
 };
 
 #define SLIMBUS_0_TX_TEXT "SLIMBUS_0_TX"
@@ -139,12 +141,12 @@ static void msm_send_eq_values(int eq_idx);
  * If new back-end is defined, add new back-end DAI ID at the end of enum
  */
 
-
+#define SRS_TRUMEDIA_INDEX 2
 union srs_trumedia_params_u {
 	struct srs_trumedia_params srs_params;
 	unsigned short int raw_params[1];
 };
-static union srs_trumedia_params_u msm_srs_trumedia_params[2];
+static union srs_trumedia_params_u msm_srs_trumedia_params[SRS_TRUMEDIA_INDEX];
 static int srs_port_id = -1;
 
 static void srs_send_params(int port_id, unsigned int techs,
@@ -190,7 +192,7 @@ int get_topology(int path_type)
 		topology_id = get_adm_tx_topology();
 
 	if (topology_id  == 0)
-		topology_id = DEFAULT_COPP_TOPOLOGY;
+		topology_id = NULL_COPP_TOPOLOGY;
 
 	return topology_id;
 }
@@ -878,6 +880,9 @@ static int msm_routing_lsm_func_get(struct snd_kcontrol *kcontrol,
 	case MAD_HW_ULTRASOUND:
 		ucontrol->value.integer.value[0] = MADULTRASOUND;
 		break;
+	case MAD_SW_AUDIO:
+		ucontrol->value.integer.value[0] = MADSWAUDIO;
+	break;
 	default:
 		WARN(1, "Unknown\n");
 		return -EINVAL;
@@ -916,6 +921,9 @@ static int msm_routing_lsm_func_put(struct snd_kcontrol *kcontrol,
 		break;
 	case MADULTRASOUND:
 		mad_type = MAD_HW_ULTRASOUND;
+		break;
+	case MADSWAUDIO:
+		mad_type = MAD_SW_AUDIO;
 		break;
 	default:
 		WARN(1, "Unknown\n");
@@ -1116,7 +1124,7 @@ static int msm_routing_set_srs_trumedia_control_(struct snd_kcontrol *kcontrol,
 			SRS_PARAM_OFFSET_MASK) >> 16);
 	value = (unsigned short)(ucontrol->value.integer.value[0] &
 			SRS_PARAM_VALUE_MASK);
-	if (offset < max) {
+	if ((offset < max) && (index < SRS_TRUMEDIA_INDEX)) {
 		msm_srs_trumedia_params[index].raw_params[offset] = value;
 		pr_debug("SRS %s: index set... (max %d, requested %d, val %d, paramblockidx %d)",
 			__func__, max, offset, value, index);
@@ -1333,7 +1341,7 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 		break;
 	case 1:
 		msm_route_ec_ref_rx = 1;
-		ec_ref_port_id = PRIMARY_I2S_RX;
+		ec_ref_port_id = AFE_PORT_ID_PRIMARY_MI2S_RX;
 		break;
 	default:
 		msm_route_ec_ref_rx = 3; /* NONE */
@@ -1872,6 +1880,21 @@ static const struct snd_kcontrol_new mmul4_mixer_controls[] = {
 	SOC_SINGLE_EXT("SLIM_0_TX", MSM_BACKEND_DAI_SLIMBUS_0_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
+	SOC_SINGLE_EXT("INTERNAL_FM_TX", MSM_BACKEND_DAI_INT_FM_TX,
+	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
+	msm_routing_put_audio_mixer),
+	SOC_SINGLE_EXT("INTERNAL_BT_SCO_TX", MSM_BACKEND_DAI_INT_BT_SCO_TX,
+	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
+	msm_routing_put_audio_mixer),
+	SOC_SINGLE_EXT("AFE_PCM_TX", MSM_BACKEND_DAI_AFE_PCM_TX,
+	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
+	msm_routing_put_audio_mixer),
+	SOC_SINGLE_EXT("VOC_REC_DL", MSM_BACKEND_DAI_INCALL_RECORD_RX,
+	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
+	msm_routing_put_audio_mixer),
+	SOC_SINGLE_EXT("VOC_REC_UL", MSM_BACKEND_DAI_INCALL_RECORD_TX,
+	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
+	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new mmul5_mixer_controls[] = {
@@ -2363,7 +2386,7 @@ static const struct snd_kcontrol_new lsm_mux =
 			  msm_routing_lsm_mux_put);
 
 static const char * const lsm_func_text[] = {
-	"None", "AUDIO", "BEACON", "ULTRASOUND"
+	"None", "AUDIO", "BEACON", "ULTRASOUND", "SWAUDIO",
 };
 static const struct soc_enum lsm_func_enum =
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(lsm_func_text), lsm_func_text);
@@ -2524,6 +2547,49 @@ static const struct snd_kcontrol_new dolby_dap_param_end_point_controls[] = {
 	SOC_SINGLE_MULTI_EXT("DS1 DAP Endpoint", SND_SOC_NOPM, 0,
 	0xFFFFFFFF, 0, 1, msm_routing_get_dolby_dap_endpoint_control,
 	msm_routing_put_dolby_dap_endpoint_control),
+};
+
+int msm_routing_get_rms_value_control(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol) {
+	int rc = 0;
+	char *param_value;
+	int *update_param_value;
+	uint32_t param_length = sizeof(uint32_t);
+	uint32_t param_payload_len = RMS_PAYLOAD_LEN * sizeof(uint32_t);
+	param_value = kzalloc(param_length, GFP_KERNEL);
+	if (!param_value) {
+		pr_err("%s, param memory alloc failed\n", __func__);
+		return -ENOMEM;
+	}
+	rc = adm_get_params(SLIMBUS_0_TX,
+			RMS_MODULEID_APPI_PASSTHRU,
+			RMS_PARAM_FIRST_SAMPLE,
+			param_length + param_payload_len,
+			param_value);
+	if (rc) {
+		pr_err("%s: get parameters failed\n", __func__);
+		kfree(param_value);
+		return -EINVAL;
+	}
+	update_param_value = (int *)param_value;
+	ucontrol->value.integer.value[0] = update_param_value[0];
+
+	pr_debug("%s: FROM DSP value[0] 0x%x\n",
+		__func__, update_param_value[0]);
+	kfree(param_value);
+	return 0;
+}
+
+int msm_routing_put_rms_value_control(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol) {
+	/* not used */
+	return 0;
+}
+
+static const struct snd_kcontrol_new get_rms_controls[] = {
+	SOC_SINGLE_EXT("Get RMS", SND_SOC_NOPM, 0, 0xFFFFFFFF,
+	0, msm_routing_get_rms_value_control,
+	msm_routing_put_rms_value_control),
 };
 
 static const struct snd_kcontrol_new eq_enable_mixer_controls[] = {
@@ -3136,7 +3202,9 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"SLIMBUS_4_RX", NULL, "SLIMBUS_4_RX Audio Mixer"},
 
 	{"MultiMedia1 Mixer", "VOC_REC_UL", "INCALL_RECORD_TX"},
+	{"MultiMedia4 Mixer", "VOC_REC_UL", "INCALL_RECORD_TX"},
 	{"MultiMedia1 Mixer", "VOC_REC_DL", "INCALL_RECORD_RX"},
+	{"MultiMedia4 Mixer", "VOC_REC_DL", "INCALL_RECORD_RX"},
 	{"MultiMedia1 Mixer", "SLIM_4_TX", "SLIMBUS_4_TX"},
 	{"MultiMedia4 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"MultiMedia5 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
@@ -3232,12 +3300,15 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"PCM_RX", NULL, "AFE_PCM_RX Audio Mixer"},
 
 	{"MultiMedia1 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
+	{"MultiMedia4 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
 	{"MultiMedia5 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
 	{"MultiMedia1 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
+	{"MultiMedia4 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 	{"MultiMedia5 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 	{"MultiMedia6 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 
 	{"MultiMedia1 Mixer", "AFE_PCM_TX", "PCM_TX"},
+	{"MultiMedia4 Mixer", "AFE_PCM_TX", "PCM_TX"},
 	{"MultiMedia5 Mixer", "AFE_PCM_TX", "PCM_TX"},
 	{"MM_UL1", NULL, "MultiMedia1 Mixer"},
 	{"MultiMedia2 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
@@ -3778,6 +3849,10 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 	snd_soc_add_platform_controls(platform,
 				ec_ref_rx_mixer_controls,
 			ARRAY_SIZE(ec_ref_rx_mixer_controls));
+
+	snd_soc_add_platform_controls(platform,
+				get_rms_controls,
+			ARRAY_SIZE(get_rms_controls));
 	return 0;
 }
 

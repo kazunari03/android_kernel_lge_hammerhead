@@ -21,6 +21,7 @@
 #define CLSH_COMPUTE_HPH_L 0x02
 #define CLSH_COMPUTE_HPH_R 0x03
 
+#define BUCK_VREF_0P494V 0x3F
 #define BUCK_VREF_2V 0xFF
 #define BUCK_VREF_1P8V 0xE6
 
@@ -93,10 +94,7 @@ static void wcd9xxx_cfg_clsh_buck(
 {
 	int i;
 	const struct wcd9xxx_reg_mask_val reg_set[] = {
-		{WCD9XXX_A_BUCK_CTRL_CCL_4, 0x0B, 0x00},
 		{WCD9XXX_A_BUCK_CTRL_CCL_1, 0xF0, 0x50},
-		{WCD9XXX_A_BUCK_CTRL_CCL_3, 0x03, 0x00},
-		{WCD9XXX_A_BUCK_CTRL_CCL_3, 0x0B, 0x00},
 	};
 
 	for (i = 0; i < ARRAY_SIZE(reg_set); i++)
@@ -221,19 +219,25 @@ static void wcd9xxx_enable_buck_mode(struct snd_soc_codec *codec,
 	usleep_range(BUCK_SETTLE_TIME_US, BUCK_SETTLE_TIME_US);
 }
 
-static void wcd9xxx_clsh_enable_post_pa(struct snd_soc_codec *codec)
+
+/* This will be called for all states except Lineout */
+static void wcd9xxx_clsh_enable_post_pa(struct snd_soc_codec *codec,
+	struct wcd9xxx_clsh_cdc_data *cdc_clsh_d)
 {
 	int i;
 	const struct wcd9xxx_reg_mask_val reg_set[] = {
 		{WCD9XXX_A_BUCK_MODE_5, 0x02, 0x00},
 		{WCD9XXX_A_NCP_STATIC, 0x20, 0x00},
 		{WCD9XXX_A_BUCK_MODE_3, 0x04, 0x04},
-		{WCD9XXX_A_BUCK_MODE_3, 0x08, 0x08},
 	};
 
 	for (i = 0; i < ARRAY_SIZE(reg_set); i++)
 		snd_soc_update_bits(codec, reg_set[i].reg,
 					reg_set[i].mask, reg_set[i].val);
+
+	if (!cdc_clsh_d->is_dynamic_vdd_cp)
+		snd_soc_update_bits(codec, WCD9XXX_A_BUCK_MODE_3,
+							0x08, 0x08);
 
 	dev_dbg(codec->dev, "%s: completed clsh mode settings after PA enable\n",
 		   __func__);
@@ -407,7 +411,7 @@ static void wcd9xxx_clsh_state_hph_l(struct snd_soc_codec *codec,
 		wcd9xxx_chargepump_request(codec, true);
 		wcd9xxx_enable_anc_delay(codec, true);
 		wcd9xxx_clsh_comp_req(codec, clsh_d, CLSH_COMPUTE_HPH_L, true);
-		wcd9xxx_enable_buck_mode(codec, BUCK_VREF_2V);
+		wcd9xxx_enable_buck_mode(codec, BUCK_VREF_0P494V);
 		wcd9xxx_set_fclk_enable_ncp(codec, NCP_FCLK_LEVEL_8);
 
 		dev_dbg(codec->dev, "%s: Done\n", __func__);
@@ -435,7 +439,7 @@ static void wcd9xxx_clsh_state_hph_r(struct snd_soc_codec *codec,
 		wcd9xxx_chargepump_request(codec, true);
 		wcd9xxx_enable_anc_delay(codec, true);
 		wcd9xxx_clsh_comp_req(codec, clsh_d, CLSH_COMPUTE_HPH_R, true);
-		wcd9xxx_enable_buck_mode(codec, BUCK_VREF_2V);
+		wcd9xxx_enable_buck_mode(codec, BUCK_VREF_0P494V);
 		wcd9xxx_set_fclk_enable_ncp(codec, NCP_FCLK_LEVEL_8);
 
 		dev_dbg(codec->dev, "%s: Done\n", __func__);
@@ -561,7 +565,7 @@ void wcd9xxx_clsh_fsm(struct snd_soc_codec *codec,
 
 
 		} else if (req_state != WCD9XXX_CLSH_STATE_LO) {
-			wcd9xxx_clsh_enable_post_pa(codec);
+			wcd9xxx_clsh_enable_post_pa(codec, cdc_clsh_d);
 		}
 
 		break;

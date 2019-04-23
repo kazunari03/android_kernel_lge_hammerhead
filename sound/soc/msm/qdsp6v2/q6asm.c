@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
  * Author: Brian Swetland <swetland@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -83,6 +83,12 @@ void *q6asm_mmap_apr_reg(void);
 
 static int q6asm_is_valid_session(struct apr_client_data *data, void *priv);
 
+/* for ASM custom topology */
+static struct audio_buffer common_buf[2];
+static struct audio_client common_client;
+static int set_custom_topology;
+static int topology_map_handle;
+
 #ifdef CONFIG_DEBUG_FS
 #define OUT_BUFFER_SIZE 56
 #define IN_BUFFER_SIZE 24
@@ -100,10 +106,6 @@ static int in_cont_index;
 static int out_cold_index;
 static char *out_buffer;
 static char *in_buffer;
-static struct audio_buffer common_buf[2];
-static struct audio_client common_client;
-static int set_custom_topology;
-static int topology_map_handle;
 
 
 int q6asm_mmap_apr_dereg(void)
@@ -313,27 +315,35 @@ static void config_debug_fs_init(void)
 	out_buffer = kmalloc(OUT_BUFFER_SIZE, GFP_KERNEL);
 	if (out_buffer == NULL) {
 		pr_err("%s: kmalloc() for out_buffer failed\n", __func__);
-		goto fail_1;
+		goto outbuf_fail;
 	}
 	in_buffer = kmalloc(IN_BUFFER_SIZE, GFP_KERNEL);
 	if (in_buffer == NULL) {
 		pr_err("%s: kmalloc() for in_buffer failed\n", __func__);
-		goto fail_2;
+		goto inbuf_fail;
 	}
 	out_dentry = debugfs_create_file("audio_out_latency_measurement_node",\
 				S_IRUGO | S_IWUSR | S_IWGRP,\
 				NULL, NULL, &audio_output_latency_debug_fops);
-	if (IS_ERR(out_dentry))
+	if (IS_ERR(out_dentry)) {
 		pr_err("%s: debugfs_create_file failed\n", __func__);
+		goto file_fail;
+	}
 	in_dentry = debugfs_create_file("audio_in_latency_measurement_node",\
 				S_IRUGO | S_IWUSR | S_IWGRP,\
 				NULL, NULL, &audio_input_latency_debug_fops);
-	if (IS_ERR(in_dentry))
+	if (IS_ERR(in_dentry)) {
 		pr_err("%s: debugfs_create_file failed\n", __func__);
+		goto file_fail;
+	}
 	return;
-fail_2:
+file_fail:
+	kfree(in_buffer);
+inbuf_fail:
 	kfree(out_buffer);
-fail_1:
+outbuf_fail:
+	in_buffer = NULL;
+	out_buffer = NULL;
 	return;
 }
 #else
@@ -367,15 +377,12 @@ static void config_debug_fs_init(void)
 static int q6asm_session_alloc(struct audio_client *ac)
 {
 	int n;
-	mutex_lock(&session_lock);
 	for (n = 1; n <= SESSION_MAX; n++) {
 		if (!session[n]) {
 			session[n] = ac;
-			mutex_unlock(&session_lock);
 			return n;
 		}
 	}
-	mutex_unlock(&session_lock);
 	return -ENOMEM;
 }
 
@@ -383,13 +390,19 @@ static void q6asm_session_free(struct audio_client *ac)
 {
 	pr_debug("%s: sessionid[%d]\n", __func__, ac->session);
 	rtac_remove_popp_from_adm_devices(ac->session);
-	mutex_lock(&session_lock);
 	session[ac->session] = 0;
-	mutex_unlock(&session_lock);
 	ac->session = 0;
 	ac->perf_mode = 0;
 	ac->fptr_cache_ops = NULL;
 	return;
+}
+
+static uint32_t q6asm_get_next_buf(uint32_t curr_buf, uint32_t max_buf_cnt)
+{
+	pr_debug("%s: curr_buf = %d, max_buf_cnt = %d\n",
+		 __func__, curr_buf, max_buf_cnt);
+	curr_buf += 1;
+	return (curr_buf >= max_buf_cnt) ? 0 : curr_buf;
 }
 
 void send_asm_custom_topology(struct audio_client *ac)
@@ -741,6 +754,9 @@ void q6asm_audio_client_free(struct audio_client *ac)
 	struct audio_port_data *port;
 	if (!ac || !ac->session)
 		return;
+
+	mutex_lock(&session_lock);
+
 	pr_debug("%s: Session id %d\n", __func__, ac->session);
 	if (ac->io_mode & SYNC_IO_MODE) {
 		for (loopcnt = 0; loopcnt <= OUT; loopcnt++) {
@@ -757,6 +773,7 @@ void q6asm_audio_client_free(struct audio_client *ac)
 	apr_deregister(ac->apr);
 	ac->apr = NULL;
 	ac->mmap_apr = NULL;
+	rtac_set_asm_handle(ac->session, ac->apr);
 	q6asm_session_free(ac);
 	q6asm_mmap_apr_dereg();
 
@@ -765,6 +782,8 @@ void q6asm_audio_client_free(struct audio_client *ac)
 /*done:*/
 	kfree(ac);
 	ac = NULL;
+	mutex_unlock(&session_lock);
+
 	return;
 }
 
@@ -821,9 +840,13 @@ struct audio_client *q6asm_audio_client_alloc(app_cb cb, void *priv)
 	ac = kzalloc(sizeof(struct audio_client), GFP_KERNEL);
 	if (!ac)
 		return NULL;
+
+	mutex_lock(&session_lock);
 	n = q6asm_session_alloc(ac);
-	if (n <= 0)
+	if (n <= 0) {
+		mutex_unlock(&session_lock);
 		goto fail_session;
+	}
 	ac->session = n;
 	ac->cb = cb;
 	ac->priv = priv;
@@ -839,7 +862,8 @@ struct audio_client *q6asm_audio_client_alloc(app_cb cb, void *priv)
 
 	if (ac->apr == NULL) {
 		pr_err("%s Registration with APR failed\n", __func__);
-			goto fail;
+		mutex_unlock(&session_lock);
+		goto fail;
 	}
 	ac->apr2 = apr_register("ADSP", "ASM", \
 				(apr_fn)q6asm_callback,\
@@ -848,14 +872,17 @@ struct audio_client *q6asm_audio_client_alloc(app_cb cb, void *priv)
 
 	if (ac->apr2 == NULL) {
 		pr_err("%s Registration with APR-2 failed\n", __func__);
-			goto fail;
+		mutex_unlock(&session_lock);
+		goto fail;
 	}
 	rtac_set_asm_handle(n, ac->apr);
 
 	pr_debug("%s Registering the common port with APR\n", __func__);
 	ac->mmap_apr = q6asm_mmap_apr_reg();
-	if (ac->mmap_apr == NULL)
+	if (ac->mmap_apr == NULL) {
+		mutex_unlock(&session_lock);
 		goto fail;
+        }
 
 	init_waitqueue_head(&ac->cmd_wait);
 	init_waitqueue_head(&ac->time_wait);
@@ -874,6 +901,8 @@ struct audio_client *q6asm_audio_client_alloc(app_cb cb, void *priv)
 	send_asm_custom_topology(ac);
 
 	pr_debug("%s: session[%d]\n", __func__, ac->session);
+
+	mutex_unlock(&session_lock);
 
 	return ac;
 fail:
@@ -931,6 +960,11 @@ int q6asm_audio_client_buf_alloc(unsigned int dir,
                 if (bufcnt != FRAME_NUM)
                         goto fail;
 		mutex_lock(&ac->cmd_lock);
+		if (bufcnt > (LONG_MAX/sizeof(struct audio_buffer))) {
+			pr_err("%s: Buffer size overflows", __func__);
+			mutex_unlock(&ac->cmd_lock);
+			goto fail;
+		}
 		buf = kzalloc(((sizeof(struct audio_buffer))*bufcnt),
 				GFP_KERNEL);
 
@@ -1194,6 +1228,8 @@ static int32_t is_no_wait_cmd_rsp(uint32_t opcode, uint32_t *cmd_type)
 			case ASM_SESSION_CMD_RUN_V2:
 			case ASM_SESSION_CMD_PAUSE:
 			case ASM_DATA_CMD_EOS:
+			case ASM_DATA_CMD_REMOVE_INITIAL_SILENCE:
+			case ASM_DATA_CMD_REMOVE_TRAILING_SILENCE:
 				return 1;
 			default:
 				break;
@@ -1484,7 +1520,8 @@ void *q6asm_is_cpu_buf_avail(int dir, struct audio_client *ac, uint32_t *size,
 		user accesses this function,increase cpu
 		buf(to avoid another api)*/
 		port->buf[idx].used = dir;
-		port->cpu_buf = ((port->cpu_buf + 1) & (port->max_buf_cnt - 1));
+		port->cpu_buf = q6asm_get_next_buf(port->cpu_buf,
+						   port->max_buf_cnt);
 		mutex_unlock(&port->lock);
 		return data;
 	}
@@ -1533,7 +1570,8 @@ void *q6asm_is_cpu_buf_avail_nolock(int dir, struct audio_client *ac,
 	 * buf(to avoid another api)
 	 */
 	port->buf[idx].used = dir;
-	port->cpu_buf = ((port->cpu_buf + 1) & (port->max_buf_cnt - 1));
+	port->cpu_buf = q6asm_get_next_buf(port->cpu_buf,
+					   port->max_buf_cnt);
 	return data;
 }
 
@@ -1721,7 +1759,7 @@ int q6asm_open_read(struct audio_client *ac,
 
 	open.preprocopo_id = get_asm_topology();
 	if (open.preprocopo_id == 0)
-		open.preprocopo_id = ASM_STREAM_POSTPROC_TOPO_ID_DEFAULT;
+		open.preprocopo_id = ASM_STREAM_POSTPROC_TOPO_ID_NONE;
 	open.bits_per_sample = bits_per_sample;
 	open.mode_flags = 0x0;
 
@@ -1825,7 +1863,7 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 
 	open.postprocopo_id = get_asm_topology();
 	if (open.postprocopo_id == 0)
-		open.postprocopo_id = ASM_STREAM_POSTPROC_TOPO_ID_DEFAULT;
+		open.postprocopo_id = ASM_STREAM_POSTPROC_TOPO_ID_NONE;
 
 	switch (format) {
 	case FORMAT_LINEAR_PCM:
@@ -1919,7 +1957,7 @@ int q6asm_open_read_write(struct audio_client *ac,
 	/* source endpoint : matrix */
 	open.postprocopo_id = get_asm_topology();
 	if (open.postprocopo_id == 0)
-		open.postprocopo_id = ASM_STREAM_POSTPROC_TOPO_ID_DEFAULT;
+		open.postprocopo_id = ASM_STREAM_POSTPROC_TOPO_ID_NONE;
 
 	switch (wr_format) {
 	case FORMAT_LINEAR_PCM:
@@ -2365,7 +2403,6 @@ int q6asm_cfg_dual_mono_aac(struct audio_client *ac,
 			uint16_t sce_left, uint16_t sce_right)
 {
 	struct asm_aac_dual_mono_mapping_param dual_mono;
-	u32 frames_per_buf = 0;
 
 	int rc = 0;
 
@@ -2376,11 +2413,8 @@ int q6asm_cfg_dual_mono_aac(struct audio_client *ac,
 
 	dual_mono.hdr.opcode = ASM_STREAM_CMD_SET_ENCDEC_PARAM;
 	dual_mono.encdec.param_id = ASM_PARAM_ID_AAC_DUAL_MONO_MAPPING;
-	dual_mono.encdec.param_size = sizeof(struct asm_aac_enc_cfg_v2) -
-				sizeof(struct asm_stream_cmd_set_encdec_param);
-	dual_mono.encblk.frames_per_buf = frames_per_buf;
-	dual_mono.encblk.enc_cfg_blk_size  = dual_mono.encdec.param_size -
-				sizeof(struct asm_enc_cfg_blk_param_v2);
+	dual_mono.encdec.param_size = sizeof(dual_mono.left_channel_sce) +
+				sizeof(dual_mono.right_channel_sce);
 	dual_mono.left_channel_sce = sce_left;
 	dual_mono.right_channel_sce = sce_right;
 
@@ -3589,6 +3623,11 @@ int q6asm_read(struct audio_client *ac)
 		mutex_lock(&port->lock);
 
 		dsp_buf = port->dsp_buf;
+		if (port->buf == NULL) {
+			pr_err("%s buf is NULL\n", __func__);
+			mutex_unlock(&port->lock);
+			return -EINVAL;
+		}
 		ab = &port->buf[dsp_buf];
 
 		pr_debug("%s:session[%d]dsp-buf[%d][%pK]cpu_buf[%d][%pK]\n",
@@ -3614,7 +3653,8 @@ int q6asm_read(struct audio_client *ac)
 		read.buf_size = ab->size;
 		read.seq_id = port->dsp_buf;
 		read.hdr.token = port->dsp_buf;
-		port->dsp_buf = (port->dsp_buf + 1) & (port->max_buf_cnt - 1);
+		port->dsp_buf = q6asm_get_next_buf(port->dsp_buf,
+						   port->max_buf_cnt);
 		mutex_unlock(&port->lock);
 		pr_debug("%s:buf add[0x%x] token[%d] uid[%d]\n", __func__,
 						read.buf_addr_lsw,
@@ -3677,7 +3717,8 @@ int q6asm_read_nolock(struct audio_client *ac)
 			}
 		}
 
-		port->dsp_buf = (port->dsp_buf + 1) & (port->max_buf_cnt - 1);
+		port->dsp_buf = q6asm_get_next_buf(port->dsp_buf,
+						   port->max_buf_cnt);
 		pr_debug("%s:buf add[0x%x] token[%d] uid[%d]\n", __func__,
 					read.buf_addr_lsw,
 					read.hdr.token,
@@ -3869,7 +3910,8 @@ int q6asm_write(struct audio_client *ac, uint32_t len, uint32_t msw_ts,
 			write.flags = (0x00000000 | (flags & 0x800000FF));
 		else
 			write.flags = (0x80000000 | flags);
-		port->dsp_buf = (port->dsp_buf + 1) & (port->max_buf_cnt - 1);
+		port->dsp_buf = q6asm_get_next_buf(port->dsp_buf,
+						   port->max_buf_cnt);
 		buf_node = list_first_entry(&ac->port[IN].mem_map_handle,
 						struct asm_buffer_node,
 						list);
@@ -3940,7 +3982,8 @@ int q6asm_write_nolock(struct audio_client *ac, uint32_t len, uint32_t msw_ts,
 			write.flags = (0x00000000 | (flags & 0x800000FF));
 		else
 			write.flags = (0x80000000 | flags);
-		port->dsp_buf = (port->dsp_buf + 1) & (port->max_buf_cnt - 1);
+		port->dsp_buf = q6asm_get_next_buf(port->dsp_buf,
+						   port->max_buf_cnt);
 
 		pr_debug("%s:ab->phys[0x%x]bufadd[0x%x]token[0x%x] buf_id[0x%x]buf_size[0x%x]mmaphdl[0x%x]"
 							, __func__,
@@ -4253,18 +4296,22 @@ int __q6asm_send_meta_data(struct audio_client *ac, uint32_t stream_id,
 	silence.hdr.opcode = ASM_DATA_CMD_REMOVE_INITIAL_SILENCE;
 	silence.num_samples_to_remove    = initial_samples;
 
+	atomic_inc(&ac->nowait_cmd_cnt);
 	rc = apr_send_pkt(ac->apr, (uint32_t *) &silence);
 	if (rc < 0) {
-		pr_err("Commmand silence failed[%d]", rc);
+		pr_err("%s: Commmand silence failed[%d]", __func__, rc);
+		atomic_dec(&ac->nowait_cmd_cnt);
 		goto fail_cmd;
 	}
 
 	silence.hdr.opcode = ASM_DATA_CMD_REMOVE_TRAILING_SILENCE;
 	silence.num_samples_to_remove    = trailing_samples;
 
+	atomic_inc(&ac->nowait_cmd_cnt);
 	rc = apr_send_pkt(ac->apr, (uint32_t *) &silence);
 	if (rc < 0) {
-		pr_err("Commmand silence failed[%d]", rc);
+		pr_err("%s: Commmand silence failed[%d]", __func__, rc);
+		atomic_dec(&ac->nowait_cmd_cnt);
 		goto fail_cmd;
 	}
 

@@ -2481,6 +2481,8 @@ struct asm_softvolume_params {
 
 #define ASM_STREAM_POSTPROC_TOPO_ID_DEFAULT 0x00010BE4
 
+#define ASM_STREAM_POSTPROC_TOPO_ID_NONE 0x00010C68
+
 #define ASM_MEDIA_FMT_EVRCB_FS 0x00010BEF
 
 #define ASM_MEDIA_FMT_EVRCWB_FS 0x00010BF0
@@ -4297,7 +4299,6 @@ struct asm_aac_sbr_ps_flag_param {
 struct asm_aac_dual_mono_mapping_param {
 	struct apr_hdr							hdr;
 	struct asm_stream_cmd_set_encdec_param	encdec;
-	struct asm_enc_cfg_blk_param_v2			encblk;
 	u16    left_channel_sce;
 	u16    right_channel_sce;
 
@@ -7143,6 +7144,11 @@ struct afe_port_cmd_set_aanc_acdb_table {
 
 /* Dolby DAP topology */
 #define DOLBY_ADM_COPP_TOPOLOGY_ID	0x0001033B
+
+/* RMS value from DSP */
+#define RMS_MODULEID_APPI_PASSTHRU  0x10009011
+#define RMS_PARAM_FIRST_SAMPLE 0x10009012
+#define RMS_PAYLOAD_LEN 4
 
 struct afe_svc_cmd_set_clip_bank_selection {
 	struct apr_hdr hdr;

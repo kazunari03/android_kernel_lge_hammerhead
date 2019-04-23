@@ -308,7 +308,7 @@ static struct buffer_head *bclean(handle_t *handle, struct super_block *sb,
 
 	bh = sb_getblk(sb, blk);
 	if (!bh)
-		return ERR_PTR(-EIO);
+		return ERR_PTR(-ENOMEM);
 	if ((err = ext4_journal_get_write_access(handle, bh))) {
 		brelse(bh);
 		bh = ERR_PTR(err);
@@ -385,7 +385,7 @@ static int set_flexbg_block_bitmap(struct super_block *sb, handle_t *handle,
 
 		bh = sb_getblk(sb, flex_gd->groups[group].block_bitmap);
 		if (!bh)
-			return -EIO;
+			return -ENOMEM;
 
 		err = ext4_journal_get_write_access(handle, bh);
 		if (err)
@@ -460,7 +460,7 @@ static int setup_new_flex_group_blocks(struct super_block *sb,
 
 			gdb = sb_getblk(sb, block);
 			if (!gdb) {
-				err = -EIO;
+				err = -ENOMEM;
 				goto out;
 			}
 
@@ -517,6 +517,7 @@ handle_bb:
 		bh = bclean(handle, sb, block);
 		if (IS_ERR(bh)) {
 			err = PTR_ERR(bh);
+			bh = NULL;
 			goto out;
 		}
 		if (ext4_bg_has_super(sb, group)) {
@@ -545,6 +546,7 @@ handle_ib:
 		bh = bclean(handle, sb, block);
 		if (IS_ERR(bh)) {
 			err = PTR_ERR(bh);
+			bh = NULL;
 			goto out;
 		}
 
@@ -980,7 +982,7 @@ static void update_backups(struct super_block *sb,
 
 		bh = sb_getblk(sb, group * bpg + blk_off);
 		if (!bh) {
-			err = -EIO;
+			err = -ENOMEM;
 			break;
 		}
 		ext4_debug("update metadata backup %#04lx\n",
@@ -1139,7 +1141,7 @@ static void ext4_update_super(struct super_block *sb,
 	struct ext4_new_group_data *group_data = flex_gd->groups;
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct ext4_super_block *es = sbi->s_es;
-	int i;
+	int i, ret;
 
 	BUG_ON(flex_gd->count == 0 || group_data == NULL);
 	/*
@@ -1213,6 +1215,11 @@ static void ext4_update_super(struct super_block *sb,
 		atomic_add(EXT4_INODES_PER_GROUP(sb) * flex_gd->count,
 			   &sbi->s_flex_groups[flex_group].free_inodes);
 	}
+
+	/*
+	 * Update the fs overhead information
+	 */
+	ext4_calculate_overhead(sb);
 
 	if (test_opt(sb, DEBUG))
 		printk(KERN_DEBUG "EXT4-fs: added group %u:"
