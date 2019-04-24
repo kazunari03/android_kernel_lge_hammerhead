@@ -32,7 +32,7 @@
 /**
  * ecryptfs_d_revalidate - revalidate an ecryptfs dentry
  * @dentry: The ecryptfs dentry
- * @nd: The associated nameidata
+ * @flags: lookup flags
  *
  * Called when the VFS needs to revalidate a dentry. This
  * is called whenever a name lookup finds a dentry in the
@@ -42,15 +42,13 @@
  * Returns 1 if valid, 0 otherwise.
  *
  */
-static int ecryptfs_d_revalidate(struct dentry *dentry, struct nameidata *nd)
+static int ecryptfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 {
 	struct dentry *lower_dentry;
 	struct vfsmount *lower_mnt;
-	struct dentry *dentry_save = NULL;
-	struct vfsmount *vfsmount_save = NULL;
 	int rc = 1;
 
-	if (nd && nd->flags & LOOKUP_RCU)
+	if (flags & LOOKUP_RCU)
 		return -ECHILD;
 
 	lower_dentry = ecryptfs_dentry_to_lower(dentry);
